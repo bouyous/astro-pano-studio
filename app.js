@@ -47,6 +47,7 @@ const els = {
   driftX: document.querySelector("#driftX"),
   driftY: document.querySelector("#driftY"),
   horizon: document.querySelector("#horizon"),
+  foregroundFeather: document.querySelector("#foregroundFeather"),
   foregroundOnce: document.querySelector("#foregroundOnce"),
   foregroundStyle: document.querySelector("#foregroundStyle"),
   foregroundLight: document.querySelector("#foregroundLight"),
@@ -335,6 +336,7 @@ function refreshOutputs() {
   document.querySelector("#overlapValue").textContent = `${els.overlap.value}%`;
   document.querySelector("#exposureValue").textContent = `${els.exposure.value}%`;
   document.querySelector("#horizonValue").textContent = `${els.horizon.value}%`;
+  document.querySelector("#foregroundFeatherValue").textContent = `${els.foregroundFeather.value}%`;
   document.querySelector("#vignetteFixValue").textContent = `${els.vignetteFix.value}%`;
   document.querySelector("#bloomValue").textContent = `${els.bloom.value}%`;
   document.querySelector("#foregroundLightValue").textContent = `${els.foregroundLight.value}%`;
@@ -525,52 +527,112 @@ function renderPanorama(images, options) {
       height
     };
   });
-  const overlap = options.overlap;
-  const totalWidth = scaled.reduce((sum, item, index) => {
-    const step = index === 0 ? item.width : item.width * (1 - overlap);
-    return sum + step;
-  }, 0);
-
   const exposure = options.exposure;
-  resizeCanvas(totalWidth, height);
+  const layout = buildSmartPanoramaLayout(scaled, options.overlap);
+  resizeCanvas(layout.width, layout.height);
   ctx.clearRect(0, 0, els.preview.width, els.preview.height);
-
-  let engine = "CPU Canvas";
-  if (state.gpu) {
-    try {
-      state.gpu.renderDay(images, scaled, totalWidth, targetHeight, overlap, exposure);
-      ctx.drawImage(state.gpu.canvas, 0, 0);
-      engine = "GPU WebGL2";
-    } catch (error) {
-      state.gpu = null;
-      gpuStatus.classList.remove("ready");
-      gpuStatus.classList.add("off");
-      gpuStatus.textContent = "CPU";
-      drawDayCpu(scaled, overlap, exposure);
-    }
-  } else {
-    drawDayCpu(scaled, overlap, exposure);
-  }
+  drawSmartPanoramaCpu(layout.items, exposure);
 
   applyProjection(options.projection);
   applyVignetteToCanvas(options.vignette);
   if (options.autoNight) applyAutoNight();
   applyBloom(options.bloom);
-  return { engine };
+  return { engine: `CPU smart stitch (${layout.items.length - 1} raccords)` };
 }
 
-function drawDayCpu(scaled, overlap, exposure) {
+function buildSmartPanoramaLayout(scaled, fallbackOverlap) {
+  const items = [{ ...scaled[0], x: 0, y: 0, blend: 0 }];
+  let minY = 0;
+  let maxY = scaled[0].height;
+  let maxX = scaled[0].width;
+
+  for (let index = 1; index < scaled.length; index += 1) {
+    const previous = items[index - 1];
+    const current = scaled[index];
+    const match = estimatePairAlignment(previous, current, fallbackOverlap);
+    const x = previous.x + previous.width - match.overlap;
+    const y = previous.y + match.dy;
+    items.push({ ...current, x, y, blend: match.overlap });
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y + current.height);
+    maxX = Math.max(maxX, x + current.width);
+  }
+
+  const yShift = minY < 0 ? -minY : 0;
+  for (const item of items) item.y += yShift;
+
+  return {
+    items,
+    width: Math.ceil(maxX),
+    height: Math.ceil(maxY + yShift)
+  };
+}
+
+function estimatePairAlignment(left, right, fallbackOverlap) {
+  const analysisHeight = 180;
+  const leftScale = analysisHeight / left.height;
+  const rightScale = analysisHeight / right.height;
+  const leftWidth = Math.max(1, Math.round(left.width * leftScale));
+  const rightWidth = Math.max(1, Math.round(right.width * rightScale));
+  const leftData = drawAnalysisImage(left.image, leftWidth, analysisHeight);
+  const rightData = drawAnalysisImage(right.image, rightWidth, analysisHeight);
+  const minOverlap = Math.max(0.12, fallbackOverlap - 0.18);
+  const maxOverlap = Math.min(0.72, fallbackOverlap + 0.28);
+  let best = { score: Number.POSITIVE_INFINITY, overlapRatio: fallbackOverlap, dy: 0 };
+
+  for (let ratio = minOverlap; ratio <= maxOverlap; ratio += 0.035) {
+    const overlap = Math.max(12, Math.round(Math.min(leftWidth, rightWidth) * ratio));
+    for (let dy = -36; dy <= 36; dy += 3) {
+      let score = 0;
+      let samples = 0;
+      for (let y = 12; y < analysisHeight - 12; y += 6) {
+        const ry = y + dy;
+        if (ry < 0 || ry >= analysisHeight) continue;
+        for (let x = 0; x < overlap; x += 6) {
+          const l = leftData[y * leftWidth + (leftWidth - overlap + x)];
+          const r = rightData[ry * rightWidth + x];
+          const diff = l - r;
+          score += diff * diff;
+          samples += 1;
+        }
+      }
+      if (samples > 0) {
+        score /= samples;
+        if (score < best.score) best = { score, overlapRatio: ratio, dy };
+      }
+    }
+  }
+
+  return {
+    overlap: Math.max(1, Math.min(left.width, right.width) * best.overlapRatio),
+    dy: best.dy / rightScale
+  };
+}
+
+function drawAnalysisImage(image, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const c = canvas.getContext("2d", { willReadFrequently: true });
+  c.drawImage(image, 0, 0, width, height);
+  const pixels = c.getImageData(0, 0, width, height).data;
+  const gray = new Float32Array(width * height);
+  for (let i = 0, p = 0; i < pixels.length; i += 4, p += 1) {
+    gray[p] = pixels[i] * 0.2126 + pixels[i + 1] * 0.7152 + pixels[i + 2] * 0.0722;
+  }
+  return gray;
+}
+
+function drawSmartPanoramaCpu(items, exposure) {
   ctx.fillStyle = "#050607";
   ctx.fillRect(0, 0, els.preview.width, els.preview.height);
-  let x = 0;
-  scaled.forEach((item, index) => {
-    if (index === 0 || overlap <= 0) {
-      drawWithExposure(item.image, x, 0, item.width, item.height, exposure);
-      x += item.width * (1 - overlap);
+  items.forEach((item, index) => {
+    if (index === 0 || item.blend <= 1) {
+      drawWithExposure(item.image, item.x, item.y, item.width, item.height, exposure);
       return;
     }
 
-    const blendWidth = Math.max(1, item.width * overlap);
+    const blendWidth = Math.max(1, item.blend);
     const layer = document.createElement("canvas");
     layer.width = Math.ceil(item.width);
     layer.height = Math.ceil(item.height);
@@ -585,8 +647,7 @@ function drawDayCpu(scaled, overlap, exposure) {
     layerCtx.fillRect(0, 0, blendWidth, item.height);
     layerCtx.fillStyle = "#fff";
     layerCtx.fillRect(blendWidth, 0, item.width - blendWidth, item.height);
-    ctx.drawImage(layer, x, 0);
-    x += item.width * (1 - overlap);
+    ctx.drawImage(layer, item.x, item.y);
   });
 }
 
@@ -629,6 +690,7 @@ function renderNight() {
   const scale = width / images[0].naturalWidth;
   const height = Math.round(images[0].naturalHeight * scale);
   const horizonY = Math.round(height * Number(els.horizon.value) / 100);
+  const feather = Math.round(height * Number(els.foregroundFeather.value) / 100);
   const driftX = Number(els.driftX.value);
   const driftY = Number(els.driftY.value);
   const mode = els.stackMode.value;
@@ -642,11 +704,11 @@ function renderNight() {
   });
 
   if (state.workerCount > 0 && wantsWorkers()) {
-    renderNightWithWorkers(width, height, mode, frames, horizonY, images.length, els.foregroundOnce.checked ? imageToCanvasData(images[0], width, height).data.buffer : null, vignetteFix);
+    renderNightWithWorkers(width, height, mode, frames, horizonY, feather, images.length, els.foregroundOnce.checked ? imageToCanvasData(images[0], width, height).data.buffer : null, vignetteFix);
     return;
   }
 
-  stackOnMainThread(width, height, mode, frames.map((buffer) => new Uint8ClampedArray(buffer)), horizonY, images);
+  stackOnMainThread(width, height, mode, frames.map((buffer) => new Uint8ClampedArray(buffer)), horizonY, feather, images);
 }
 
 function renderStorm() {
@@ -782,7 +844,7 @@ function luma(r, g, b) {
   return r * 0.2126 + g * 0.7152 + b * 0.0722;
 }
 
-function renderNightWithWorkers(width, height, mode, frames, horizonY, frameCount, foreground, vignetteFix) {
+function renderNightWithWorkers(width, height, mode, frames, horizonY, feather, frameCount, foreground, vignetteFix) {
   const workerTotal = Math.min(state.workerCount, height);
   const chunkHeight = Math.ceil(height / workerTotal);
   const result = new Uint8ClampedArray(width * height * 4);
@@ -835,6 +897,7 @@ function renderNightWithWorkers(width, height, mode, frames, horizonY, frameCoun
       startY,
       endY,
       horizonY,
+      feather,
       foregroundOnce: Boolean(foreground),
       foreground,
       vignetteFix
@@ -842,22 +905,12 @@ function renderNightWithWorkers(width, height, mode, frames, horizonY, frameCoun
   }
 }
 
-function stackOnMainThread(width, height, mode, frameArrays, horizonY, images) {
+function stackOnMainThread(width, height, mode, frameArrays, horizonY, feather, images) {
   const out = computeStack(width, height, mode, frameArrays);
   ctx.putImageData(new ImageData(out, width, height), 0, 0);
 
   if (els.foregroundOnce.checked && images) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, horizonY, width, height - horizonY);
-    ctx.clip();
-    ctx.drawImage(images[0], 0, 0, width, height);
-    ctx.restore();
-    const fade = ctx.createLinearGradient(0, horizonY - 42, 0, horizonY + 42);
-    fade.addColorStop(0, "rgba(0,0,0,0)");
-    fade.addColorStop(1, "rgba(0,0,0,0.26)");
-    ctx.fillStyle = fade;
-    ctx.fillRect(0, horizonY - 42, width, 84);
+    blendForegroundMask(imageToCanvasData(images[0], width, height).data, horizonY, feather);
   }
 
   if (els.autoNight.checked) applyAutoNight();
@@ -867,6 +920,29 @@ function stackOnMainThread(width, height, mode, frameArrays, horizonY, images) {
   els.downloadBtn.disabled = false;
   els.emptyState.classList.add("hidden");
   updateStatus(`Image nuit creee en CPU principal avec ${frameArrays.length} frame(s).`);
+}
+
+function blendForegroundMask(foreground, horizonY, feather) {
+  const image = ctx.getImageData(0, 0, els.preview.width, els.preview.height);
+  const data = image.data;
+  const width = image.width;
+  const height = image.height;
+  const soft = Math.max(1, feather);
+
+  for (let y = 0; y < height; y += 1) {
+    const horizonAlpha = Math.max(0, Math.min(1, (y - (horizonY - soft)) / (soft * 2)));
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      const fgLum = luma(foreground[i], foreground[i + 1], foreground[i + 2]);
+      const objectAlpha = fgLum < 92 ? Math.min(0.95, (92 - fgLum) / 52) : 0;
+      const alpha = Math.max(horizonAlpha, objectAlpha);
+      if (alpha <= 0) continue;
+      data[i] = data[i] * (1 - alpha) + foreground[i] * alpha;
+      data[i + 1] = data[i + 1] * (1 - alpha) + foreground[i + 1] * alpha;
+      data[i + 2] = data[i + 2] * (1 - alpha) + foreground[i + 2] * alpha;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
 }
 
 function applyForegroundEffects(horizonY) {
@@ -1054,7 +1130,7 @@ els.clearBtn.addEventListener("click", () => {
   updateStatus();
 });
 
-for (const range of [els.overlap, els.exposure, els.horizon, els.vignetteFix, els.bloom, els.foregroundLight, els.lightningIntensity, els.cloudProtection, els.stormBaseDarken]) bindOutput(range, "%");
+for (const range of [els.overlap, els.exposure, els.horizon, els.foregroundFeather, els.vignetteFix, els.bloom, els.foregroundLight, els.lightningIntensity, els.cloudProtection, els.stormBaseDarken]) bindOutput(range, "%");
 bindOutput(els.lightningThreshold);
 bindOutput(els.outputHeight, " px");
 bindOutput(els.driftX, " px");
