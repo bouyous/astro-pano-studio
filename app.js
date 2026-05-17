@@ -10,6 +10,7 @@ const state = {
 
 const rawExtensions = new Set(["arw", "cr2", "cr3", "nef", "raf", "dng", "orf", "rw2", "raw"]);
 const supportedPreviewTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"]);
+const supportedPreviewExtensions = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp"]);
 
 const els = {
   fileInput: document.querySelector("#fileInput"),
@@ -20,6 +21,7 @@ const els = {
   loadedCount: document.querySelector("#loadedCount"),
   renderBtn: document.querySelector("#renderBtn"),
   downloadBtn: document.querySelector("#downloadBtn"),
+  enginePreference: document.querySelector("#enginePreference"),
   checkUpdateBtn: document.querySelector("#checkUpdateBtn"),
   runUpdateBtn: document.querySelector("#runUpdateBtn"),
   updateStatus: document.querySelector("#updateStatus"),
@@ -173,7 +175,7 @@ function initEngines() {
     state.gpu = null;
   }
 
-  if (state.gpu) {
+  if (state.gpu && wantsGpu()) {
     gpuStatus.classList.add("ready");
     gpuStatus.textContent = "GPU pret";
   } else {
@@ -191,6 +193,14 @@ function initEngines() {
   }
 }
 
+function wantsGpu() {
+  return els.enginePreference.value !== "cpu";
+}
+
+function wantsWorkers() {
+  return state.workerCount > 0;
+}
+
 function extensionOf(name) {
   return name.split(".").pop().toLowerCase();
 }
@@ -200,7 +210,7 @@ function isLikelyRaw(file) {
 }
 
 function canPreview(file) {
-  return supportedPreviewTypes.has(file.type);
+  return supportedPreviewTypes.has(file.type) || supportedPreviewExtensions.has(extensionOf(file.name));
 }
 
 function loadImage(file) {
@@ -270,6 +280,17 @@ function updateStatus(message) {
   } else {
     els.status.textContent = `${usable} image(s) pretes pour l'assemblage.`;
   }
+}
+
+function explainUnreadableFiles() {
+  const unreadable = state.files.filter((item) => !item.image);
+  if (!unreadable.length) return "";
+  const rawCount = unreadable.filter((item) => item.raw).length;
+  const otherCount = unreadable.length - rawCount;
+  const parts = [];
+  if (rawCount) parts.push(`${rawCount} RAW`);
+  if (otherCount) parts.push(`${otherCount} fichier(s) non decode(s)`);
+  return ` Ignore: ${parts.join(", ")}. Convertis-les en TIFF exporte vers JPEG/PNG/WebP lisible par le navigateur.`;
 }
 
 function renderFileList() {
@@ -457,7 +478,7 @@ function applyProjection(projection) {
 function renderDay() {
   const images = readableFiles().map((item) => item.image);
   if (!images.length) {
-    updateStatus("Aucune image lisible. Convertis les RAW avant l'assemblage.");
+    updateStatus("Aucune image lisible pour l'assemblage. Les RAW/TIFF doivent etre developpes/exportes avant import.");
     return;
   }
 
@@ -480,18 +501,21 @@ function renderDay() {
   resizeCanvas(totalWidth, targetHeight);
   ctx.clearRect(0, 0, els.preview.width, els.preview.height);
 
+  let engine = "CPU Canvas";
   if (state.gpu) {
-    state.gpu.renderDay(images, scaled, totalWidth, targetHeight, overlap, exposure);
-    ctx.drawImage(state.gpu.canvas, 0, 0);
+    try {
+      state.gpu.renderDay(images, scaled, totalWidth, targetHeight, overlap, exposure);
+      ctx.drawImage(state.gpu.canvas, 0, 0);
+      engine = "GPU WebGL2";
+    } catch (error) {
+      state.gpu = null;
+      gpuStatus.classList.remove("ready");
+      gpuStatus.classList.add("off");
+      gpuStatus.textContent = "CPU";
+      drawDayCpu(scaled, overlap, exposure);
+    }
   } else {
-    ctx.fillStyle = "#050607";
-    ctx.fillRect(0, 0, els.preview.width, els.preview.height);
-    let x = 0;
-    scaled.forEach((item, index) => {
-      drawWithExposure(item.image, x, 0, item.width, item.height, exposure);
-      x += item.width * (1 - overlap);
-      if (index > 0) ctx.globalAlpha = 1;
-    });
+    drawDayCpu(scaled, overlap, exposure);
   }
 
   applyProjection(els.projection.value);
@@ -500,7 +524,17 @@ function renderDay() {
   state.rendered = true;
   els.downloadBtn.disabled = false;
   els.emptyState.classList.add("hidden");
-  updateStatus(`Panorama ${els.projection.value} cree avec ${images.length} image(s) via ${state.gpu ? "GPU WebGL2" : "CPU Canvas"}.`);
+  updateStatus(`Panorama ${els.projection.value} cree avec ${images.length} image(s) via ${engine}.${explainUnreadableFiles()}`);
+}
+
+function drawDayCpu(scaled, overlap, exposure) {
+  ctx.fillStyle = "#050607";
+  ctx.fillRect(0, 0, els.preview.width, els.preview.height);
+  let x = 0;
+  scaled.forEach((item) => {
+    drawWithExposure(item.image, x, 0, item.width, item.height, exposure);
+    x += item.width * (1 - overlap);
+  });
 }
 
 function imageToCanvasData(image, width, height, dx = 0, dy = 0) {
@@ -517,7 +551,7 @@ function imageToCanvasData(image, width, height, dx = 0, dy = 0) {
 function renderNight() {
   const images = readableFiles().map((item) => item.image);
   if (!images.length) {
-    updateStatus("Aucune image lisible. Convertis les RAW avant l'empilement.");
+    updateStatus("Aucune image lisible pour l'empilement. Les RAW/TIFF doivent etre developpes/exportes avant import.");
     return;
   }
 
@@ -537,7 +571,7 @@ function renderNight() {
     return imageToCanvasData(image, width, height, dx, dy).data.buffer;
   });
 
-  if (state.workerCount > 0) {
+  if (state.workerCount > 0 && wantsWorkers()) {
     renderNightWithWorkers(width, height, mode, frames, horizonY, images.length, els.foregroundOnce.checked ? imageToCanvasData(images[0], width, height).data.buffer : null, vignetteFix);
     return;
   }
@@ -562,7 +596,91 @@ function renderStorm() {
 
   resizeCanvas(width, height);
   const base = imageToCanvasData(images[0], width, height);
-  const out = new Uint8ClampedArray(base.data);
+  const frames = images.slice(1).map((image) => imageToCanvasData(image, width, height).data.buffer);
+
+  if (state.workerCount > 0 && wantsWorkers()) {
+    renderStormWithWorkers(width, height, base.data.buffer, frames, {
+      threshold,
+      intensity,
+      cloudProtection,
+      baseDarken,
+      frameCount: images.length
+    });
+    return;
+  }
+
+  const out = computeStormComposite(width, height, new Uint8ClampedArray(base.data), frames.map((frame) => new Uint8ClampedArray(frame)), threshold, intensity, cloudProtection, baseDarken);
+
+  ctx.putImageData(new ImageData(out, width, height), 0, 0);
+  applyVignetteToCanvas(Number(els.vignetteFix.value));
+  applyBloom(Math.max(Number(els.bloom.value), 10));
+  state.rendered = true;
+  els.downloadBtn.disabled = false;
+  els.emptyState.classList.add("hidden");
+  updateStatus(`Photo d'orage creee avec ${images.length} images via CPU principal.`);
+}
+
+function renderStormWithWorkers(width, height, base, frames, options) {
+  const workerTotal = Math.min(state.workerCount, height);
+  const chunkHeight = Math.ceil(height / workerTotal);
+  const result = new Uint8ClampedArray(width * height * 4);
+  let completed = 0;
+  let failed = false;
+
+  state.workerBusy = true;
+  els.renderBtn.disabled = true;
+  updateStatus(`Fusion orage avec ${workerTotal} threads CPU et ${options.frameCount} images...`);
+
+  for (let index = 0; index < workerTotal; index += 1) {
+    const startY = index * chunkHeight;
+    const endY = Math.min(height, startY + chunkHeight);
+    const worker = new Worker("storm-worker.js");
+
+    worker.onmessage = (event) => {
+      const { pixels, startY: returnedStartY } = event.data;
+      result.set(new Uint8ClampedArray(pixels), returnedStartY * width * 4);
+      completed += 1;
+      worker.terminate();
+
+      if (completed === workerTotal && !failed) {
+        state.workerBusy = false;
+        els.renderBtn.disabled = false;
+        ctx.putImageData(new ImageData(result, width, height), 0, 0);
+        applyVignetteToCanvas(Number(els.vignetteFix.value));
+        applyBloom(Math.max(Number(els.bloom.value), 10));
+        state.rendered = true;
+        els.downloadBtn.disabled = false;
+        els.emptyState.classList.add("hidden");
+        updateStatus(`Photo d'orage creee avec ${options.frameCount} images sur ${workerTotal} threads CPU.`);
+      }
+    };
+
+    worker.onerror = () => {
+      failed = true;
+      state.workerBusy = false;
+      els.renderBtn.disabled = false;
+      worker.terminate();
+      updateStatus("Erreur pendant la fusion orage multithread. Essaie avec moins d'images ou une taille plus petite.");
+    };
+
+    worker.postMessage({
+      type: "storm",
+      width,
+      height,
+      startY,
+      endY,
+      base,
+      frames,
+      threshold: options.threshold,
+      intensity: options.intensity,
+      cloudProtection: options.cloudProtection,
+      baseDarken: options.baseDarken
+    });
+  }
+}
+
+function computeStormComposite(width, height, base, frameArrays, threshold, intensity, cloudProtection, baseDarken) {
+  const out = new Uint8ClampedArray(base);
 
   for (let i = 0; i < out.length; i += 4) {
     out[i] *= baseDarken;
@@ -571,10 +689,9 @@ function renderStorm() {
   }
 
   let lightningPixels = 0;
-  for (let frameIndex = 1; frameIndex < images.length; frameIndex += 1) {
-    const frame = imageToCanvasData(images[frameIndex], width, height).data;
+  for (const frame of frameArrays) {
     for (let i = 0; i < out.length; i += 4) {
-      const baseLum = luma(base.data[i], base.data[i + 1], base.data[i + 2]);
+      const baseLum = luma(base[i], base[i + 1], base[i + 2]);
       const frameLum = luma(frame[i], frame[i + 1], frame[i + 2]);
       const delta = frameLum - baseLum;
       const whiteness = Math.max(frame[i], frame[i + 1], frame[i + 2]) - Math.min(frame[i], frame[i + 1], frame[i + 2]);
@@ -588,14 +705,7 @@ function renderStorm() {
       }
     }
   }
-
-  ctx.putImageData(new ImageData(out, width, height), 0, 0);
-  applyVignetteToCanvas(Number(els.vignetteFix.value));
-  applyBloom(Math.max(Number(els.bloom.value), 10));
-  state.rendered = true;
-  els.downloadBtn.disabled = false;
-  els.emptyState.classList.add("hidden");
-  updateStatus(`Photo d'orage creee avec ${images.length} images, ${Math.round(lightningPixels / 1000)}k pixels d'eclairs fusionnes.`);
+  return out;
 }
 
 function luma(r, g, b) {
@@ -786,9 +896,14 @@ function downloadPng() {
 }
 
 function renderCurrentMode() {
-  if (state.mode === "day") renderDay();
-  if (state.mode === "night") renderNight();
-  if (state.mode === "storm") renderStorm();
+  try {
+    if (state.mode === "day") renderDay();
+    if (state.mode === "night") renderNight();
+    if (state.mode === "storm") renderStorm();
+  } catch (error) {
+    els.renderBtn.disabled = false;
+    updateStatus(`Erreur pendant l'assemblage: ${error.message}`);
+  }
 }
 
 async function checkForUpdate() {

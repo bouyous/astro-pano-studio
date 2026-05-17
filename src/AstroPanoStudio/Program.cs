@@ -262,8 +262,14 @@ static bool IsTrustedUrl(string? value, HashSet<string> allowedHosts)
 
 static bool HasValidToken(HttpListenerRequest request, string sessionToken)
 {
+    var provided = request.Headers["X-Astro-Token"];
+    if (string.IsNullOrWhiteSpace(provided) || provided.Length != sessionToken.Length)
+    {
+        return false;
+    }
+
     return CryptographicOperations.FixedTimeEquals(
-        System.Text.Encoding.UTF8.GetBytes(request.Headers["X-Astro-Token"] ?? ""),
+        System.Text.Encoding.UTF8.GetBytes(provided),
         System.Text.Encoding.UTF8.GetBytes(sessionToken)
     );
 }

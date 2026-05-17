@@ -178,6 +178,14 @@
 
         <section class="block engine">
           <h2>Moteur</h2>
+          <label>
+            Acceleration
+            <select id="enginePreference">
+              <option value="auto">Auto CPU + GPU</option>
+              <option value="gpu">GPU si possible</option>
+              <option value="cpu">CPU multithread</option>
+            </select>
+          </label>
           <p><span id="gpuStatus" class="badge">GPU</span> WebGL2 pour le panorama jour.</p>
           <p><span id="workerStatus" class="badge">Worker</span> Empilement nuit hors du fil principal.</p>
         </section>

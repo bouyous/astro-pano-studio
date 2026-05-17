@@ -12,5 +12,6 @@
     <EmbeddedResource Include="..\..\app.js" Link="app.js" />
     <EmbeddedResource Include="..\..\styles.css" Link="styles.css" />
     <EmbeddedResource Include="..\..\stack-worker.js" Link="stack-worker.js" />
+    <EmbeddedResource Include="..\..\storm-worker.js" Link="storm-worker.js" />
   </ItemGroup>
 </Project>

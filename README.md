@@ -61,6 +61,7 @@ Le serveur local est limite a `127.0.0.1`, les actions de mise a jour demandent 
 
 - Le panorama de jour utilise WebGL2 quand il est disponible. C'est le chemin GPU.
 - Le mode nuit decoupe l'image en bandes et lance plusieurs Web Workers en parallele. Le calcul se fait hors du fil principal pour garder l'interface reactive.
+- Le mode orage utilise aussi plusieurs Web Workers pour fusionner les eclairs par bandes.
 - Si WebGL2 ou Worker ne sont pas disponibles, l'application bascule sur le moteur CPU Canvas.
 
 ## Reglages photo et presets

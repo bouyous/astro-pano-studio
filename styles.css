@@ -225,6 +225,13 @@ select {
   gap: 8px;
 }
 
+.engine label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .engine p,
 .update-box p {
   color: var(--muted);
