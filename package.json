@@ -1,0 +1,9 @@
+{
+  "name": "astro-pano-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Application locale pour assembler des panoramas jour et nuit a partir de photos RAW preparees.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

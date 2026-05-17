@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Astro Pano Studio</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="panel">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">AP</div>
+          <div>
+            <h1>Astro Pano Studio</h1>
+            <p>Panoramas jour, ciel etoile et time-lapse RAW prepare.</p>
+          </div>
+        </div>
+
+        <section class="block">
+          <label class="file-drop" for="fileInput">
+            <input id="fileInput" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.arw,.cr2,.cr3,.nef,.raf,.dng,.orf,.rw2,image/*">
+            <span class="drop-title">Importer les photos</span>
+            <span class="drop-copy">JPG, PNG, WebP, TIFF selon navigateur, ou RAW a convertir.</span>
+          </label>
+          <div class="row">
+            <button id="sortBtn" type="button" title="Trier par nom">A-Z</button>
+            <button id="clearBtn" type="button" title="Vider le projet">Effacer</button>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>Mode</h2>
+          <div class="segmented" role="tablist" aria-label="Mode de traitement">
+            <button id="dayMode" type="button" class="active">Jour</button>
+            <button id="nightMode" type="button">Nuit</button>
+          </div>
+        </section>
+
+        <section class="block controls" id="dayControls">
+          <h2>Assemblage jour</h2>
+          <label>
+            Recouvrement
+            <input id="overlap" type="range" min="5" max="70" value="28">
+            <output id="overlapValue">28%</output>
+          </label>
+          <label>
+            Exposition
+            <input id="exposure" type="range" min="70" max="140" value="100">
+            <output id="exposureValue">100%</output>
+          </label>
+          <label>
+            Hauteur de sortie
+            <input id="outputHeight" type="range" min="480" max="2400" value="1080" step="60">
+            <output id="outputHeightValue">1080 px</output>
+          </label>
+          <label>
+            Projection
+            <select id="projection">
+              <option value="rectilinear">Rectiligne</option>
+              <option value="cylindrical">Cylindrique</option>
+              <option value="spherical">Spherique</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="block controls hidden" id="nightControls">
+          <h2>Time-lapse nuit</h2>
+          <label>
+            Preset nocturne
+            <select id="nightPreset">
+              <option value="neutral">Neutre</option>
+              <option value="milky-detail">Voie lactee detaillee</option>
+              <option value="cold-blue">Bleu nuit froid</option>
+              <option value="natural-soft">Ciel naturel doux</option>
+              <option value="moon-foreground">Premier plan lune</option>
+              <option value="human-silhouette">Silhouette presente</option>
+            </select>
+          </label>
+          <label class="check">
+            <input id="autoNight" type="checkbox" checked>
+            Reglages auto nuit
+          </label>
+          <label>
+            Methode ciel
+            <select id="stackMode">
+              <option value="max">Etoiles intenses</option>
+              <option value="average">Moyenne douce</option>
+            </select>
+          </label>
+          <label>
+            Derive X par image
+            <input id="driftX" type="range" min="-12" max="12" value="0" step="0.5">
+            <output id="driftXValue">0 px</output>
+          </label>
+          <label>
+            Derive Y par image
+            <input id="driftY" type="range" min="-12" max="12" value="0" step="0.5">
+            <output id="driftYValue">0 px</output>
+          </label>
+          <label>
+            Limite premier plan
+            <input id="horizon" type="range" min="35" max="90" value="68">
+            <output id="horizonValue">68%</output>
+          </label>
+          <label class="check">
+            <input id="foregroundOnce" type="checkbox" checked>
+            Utiliser une seule fois le premier plan de la premiere photo
+          </label>
+          <label>
+            Premier plan
+            <select id="foregroundStyle">
+              <option value="normal">Normal</option>
+              <option value="relight">Reeclairer</option>
+              <option value="preserve-silhouette">Proteger silhouette RAW</option>
+              <option value="relight-preserve-silhouette">Reeclairer + proteger silhouette</option>
+            </select>
+          </label>
+          <label>
+            Lumiere premier plan
+            <input id="foregroundLight" type="range" min="0" max="100" value="26">
+            <output id="foregroundLightValue">26%</output>
+          </label>
+        </section>
+
+        <section class="block controls">
+          <h2>Optique et rendu</h2>
+          <label>
+            Anti-vignettage
+            <input id="vignetteFix" type="range" min="0" max="100" value="35">
+            <output id="vignetteFixValue">35%</output>
+          </label>
+          <label>
+            Flou gaussien sublime
+            <input id="bloom" type="range" min="0" max="80" value="18">
+            <output id="bloomValue">18%</output>
+          </label>
+        </section>
+
+        <section class="block">
+          <button id="renderBtn" type="button" class="primary">Assembler</button>
+          <button id="downloadBtn" type="button" disabled>Exporter PNG</button>
+        </section>
+
+        <section class="block engine">
+          <h2>Moteur</h2>
+          <p><span id="gpuStatus" class="badge">GPU</span> WebGL2 pour le panorama jour.</p>
+          <p><span id="workerStatus" class="badge">Worker</span> Empilement nuit hors du fil principal.</p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <h2 id="workspaceTitle">Panorama jour</h2>
+            <p id="status">Importe des images pour commencer.</p>
+          </div>
+          <div class="meter">
+            <span id="loadedCount">0</span>
+            <small>images lisibles</small>
+          </div>
+        </header>
+
+        <div class="preview-wrap">
+          <canvas id="preview" width="1200" height="700"></canvas>
+          <div id="emptyState" class="empty">
+            <strong>Depose une sequence de photos.</strong>
+            <span>Pour les RAW, convertis-les d'abord en TIFF 16 bits ou JPEG pleine taille, puis importe les fichiers convertis.</span>
+          </div>
+        </div>
+
+        <section class="filmstrip" id="filmstrip" aria-label="Photos importees"></section>
+
+        <section class="notes">
+          <div>
+            <h3>Flux RAW conseille</h3>
+            <p>Developpe les RAW avec la meme balance des blancs et les memes reglages, exporte en TIFF 16 bits, puis assemble ici. Les RAW non convertis sont gardes dans la liste du projet mais les navigateurs ne savent pas les decoder directement.</p>
+          </div>
+          <div>
+            <h3>Mode nuit</h3>
+            <p>Utilise les images du time-lapse pour le ciel, applique une derive manuelle pour suivre les etoiles, puis recolle le premier plan d'une seule image sous la limite choisie.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
