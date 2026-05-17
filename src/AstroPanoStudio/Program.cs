@@ -1,11 +1,15 @@
 using System.Diagnostics;
 using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 var root = FindAppRoot(AppContext.BaseDirectory);
 var port = GetPort();
-var prefix = $"http://localhost:{port}/";
+var host = "127.0.0.1";
+var sessionToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+var prefix = $"http://{host}:{port}/";
 using var listener = new HttpListener();
 listener.Prefixes.Add(prefix);
 
@@ -16,7 +20,7 @@ try
 catch (HttpListenerException)
 {
     port += 1;
-    prefix = $"http://localhost:{port}/";
+    prefix = $"http://{host}:{port}/";
     listener.Prefixes.Clear();
     listener.Prefixes.Add(prefix);
     listener.Start();
@@ -28,7 +32,7 @@ OpenBrowser(prefix);
 while (listener.IsListening)
 {
     var context = await listener.GetContextAsync();
-    _ = Task.Run(() => HandleRequest(context, root));
+    _ = Task.Run(() => HandleRequest(context, root, port, sessionToken));
 }
 
 static string FindAppRoot(string start)
@@ -53,14 +57,21 @@ static int GetPort()
     return int.TryParse(value, out var port) ? port : 4173;
 }
 
-static async Task HandleRequest(HttpListenerContext context, string root)
+static async Task HandleRequest(HttpListenerContext context, string root, int port, string sessionToken)
 {
     try
     {
+        AddSecurityHeaders(context.Response);
+        if (!IsAllowedMethod(context.Request))
+        {
+            await SendJson(context.Response, 405, new { ok = false, message = "Methode non autorisee." });
+            return;
+        }
+
         var path = context.Request.Url?.AbsolutePath ?? "/";
         if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleApi(context, path, root);
+            await HandleApi(context, path, root, port, sessionToken);
             return;
         }
 
@@ -72,14 +83,32 @@ static async Task HandleRequest(HttpListenerContext context, string root)
     }
 }
 
-static async Task HandleApi(HttpListenerContext context, string path, string root)
+static async Task HandleApi(HttpListenerContext context, string path, string root, int port, string sessionToken)
 {
+    if (!IsTrustedRequest(context.Request, port))
+    {
+        await SendJson(context.Response, 403, new { ok = false, message = "Requete locale non autorisee." });
+        return;
+    }
+
+    if (path.Equals("/api/security/session", StringComparison.OrdinalIgnoreCase))
+    {
+        await SendJson(context.Response, 200, new { ok = true, token = sessionToken });
+        return;
+    }
+
+    if (!HasValidToken(context.Request, sessionToken))
+    {
+        await SendJson(context.Response, 403, new { ok = false, message = "Token de session invalide." });
+        return;
+    }
+
     if (path.Equals("/api/update/check", StringComparison.OrdinalIgnoreCase))
     {
-        var remote = await RunGit(root, "remote", "get-url", "origin");
+        var remote = await GetTrustedRemote(root);
         if (!remote.Ok)
         {
-            await SendJson(context.Response, 200, new { ok = false, message = "Aucun depot GitHub n'est configure." });
+            await SendJson(context.Response, 200, new { ok = false, message = remote.Output });
             return;
         }
 
@@ -104,6 +133,13 @@ static async Task HandleApi(HttpListenerContext context, string path, string roo
         if (!context.Request.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase))
         {
             await SendJson(context.Response, 405, new { ok = false, message = "POST requis." });
+            return;
+        }
+
+        var remote = await GetTrustedRemote(root);
+        if (!remote.Ok)
+        {
+            await SendJson(context.Response, 200, new { ok = false, message = remote.Output });
             return;
         }
 
@@ -183,6 +219,55 @@ static string ContentType(string extension) => extension.ToLowerInvariant() swit
     _ => "application/octet-stream"
 };
 
+static void AddSecurityHeaders(HttpListenerResponse response)
+{
+    response.Headers["X-Content-Type-Options"] = "nosniff";
+    response.Headers["X-Frame-Options"] = "DENY";
+    response.Headers["Referrer-Policy"] = "no-referrer";
+    response.Headers["Cache-Control"] = "no-store";
+    response.Headers["Cross-Origin-Resource-Policy"] = "same-origin";
+    response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+}
+
+static bool IsAllowedMethod(HttpListenerRequest request)
+{
+    return request.HttpMethod is "GET" or "HEAD" or "POST";
+}
+
+static bool IsTrustedRequest(HttpListenerRequest request, int port)
+{
+    var allowedHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        $"127.0.0.1:{port}",
+        $"localhost:{port}",
+        $"[::1]:{port}"
+    };
+
+    if (!allowedHosts.Contains(request.UserHostName) && request.Headers["Host"] is { } host && !allowedHosts.Contains(host))
+    {
+        return false;
+    }
+
+    if (!IsTrustedUrl(request.Headers["Origin"], allowedHosts)) return false;
+    if (!IsTrustedUrl(request.Headers["Referer"], allowedHosts)) return false;
+
+    return true;
+}
+
+static bool IsTrustedUrl(string? value, HashSet<string> allowedHosts)
+{
+    if (string.IsNullOrWhiteSpace(value)) return true;
+    return Uri.TryCreate(value, UriKind.Absolute, out var uri) && allowedHosts.Contains(uri.Authority);
+}
+
+static bool HasValidToken(HttpListenerRequest request, string sessionToken)
+{
+    return CryptographicOperations.FixedTimeEquals(
+        System.Text.Encoding.UTF8.GetBytes(request.Headers["X-Astro-Token"] ?? ""),
+        System.Text.Encoding.UTF8.GetBytes(sessionToken)
+    );
+}
+
 static async Task SendJson(HttpListenerResponse response, int status, object payload)
 {
     response.StatusCode = status;
@@ -223,6 +308,22 @@ static async Task<(bool Ok, string Output)> RunGit(string root, params string[] 
     {
         return (false, error.Message);
     }
+}
+
+static async Task<(bool Ok, string Output)> GetTrustedRemote(string root)
+{
+    var remote = await RunGit(root, "remote", "get-url", "origin");
+    if (!remote.Ok)
+    {
+        return (false, "Aucun depot GitHub n'est configure.");
+    }
+
+    if (!Regex.IsMatch(remote.Output, @"github\.com[/:]bouyous/astro-pano-studio(\.git)?$", RegexOptions.IgnoreCase))
+    {
+        return (false, "Depot distant non autorise pour les mises a jour.");
+    }
+
+    return remote;
 }
 
 static void OpenBrowser(string url)

@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 $exeLauncher = Join-Path $project "AstroPanoStudio.exe"

@@ -4,7 +4,8 @@ const state = {
   rendered: false,
   workerCount: 0,
   workerBusy: false,
-  gpu: null
+  gpu: null,
+  securityToken: null
 };
 
 const rawExtensions = new Set(["arw", "cr2", "cr3", "nef", "raf", "dng", "orf", "rw2", "raw"]);
@@ -794,7 +795,7 @@ async function checkForUpdate() {
   els.checkUpdateBtn.disabled = true;
   els.updateStatus.textContent = "Verification GitHub...";
   try {
-    const response = await fetch("/api/update/check");
+    const response = await secureFetch("/api/update/check");
     const data = await response.json();
     els.runUpdateBtn.disabled = !data.ok || !data.updateAvailable;
     els.updateStatus.textContent = data.message || "Verification terminee.";
@@ -809,12 +810,39 @@ async function runUpdate() {
   els.runUpdateBtn.disabled = true;
   els.updateStatus.textContent = "Mise a jour en cours...";
   try {
-    const response = await fetch("/api/update/run", { method: "POST" });
+    const response = await secureFetch("/api/update/run", { method: "POST" });
     const data = await response.json();
     els.updateStatus.textContent = data.message || "Mise a jour terminee.";
   } catch (error) {
     els.updateStatus.textContent = "Mise a jour impossible depuis l'interface.";
   }
+}
+
+async function getSecurityToken() {
+  if (state.securityToken) return state.securityToken;
+  const response = await fetch("/api/security/session", {
+    cache: "no-store",
+    credentials: "same-origin"
+  });
+  const data = await response.json();
+  if (!data.ok || !data.token) {
+    throw new Error("Session locale non autorisee");
+  }
+  state.securityToken = data.token;
+  return state.securityToken;
+}
+
+async function secureFetch(url, options = {}) {
+  const token = await getSecurityToken();
+  return fetch(url, {
+    ...options,
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      ...(options.headers || {}),
+      "X-Astro-Token": token
+    }
+  });
 }
 
 els.fileInput.addEventListener("change", (event) => addFiles(event.target.files));

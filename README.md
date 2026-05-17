@@ -44,6 +44,10 @@ Ou depuis PowerShell:
 .\update.ps1
 ```
 
+## Securite
+
+Le serveur local est limite a `127.0.0.1`, les actions de mise a jour demandent un token de session, les requetes externes sont bloquees, et les mises a jour ne sont acceptees que depuis `github.com/bouyous/astro-pano-studio`. Voir `SECURITY.md`.
+
 ## Utilisation
 
 1. Importe les photos.
