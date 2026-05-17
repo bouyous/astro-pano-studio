@@ -74,6 +74,7 @@
               <option value="timelapse">Time-lapse meme cadrage</option>
             </select>
           </label>
+          <p id="nightModeHint" class="mode-hint">Pour une mosaique de ciel ou paysage, garde Panorama horizontal. Time-lapse sert uniquement si toutes les photos ont exactement le meme cadrage.</p>
           <label>
             Preset nocturne
             <select id="nightPreset">
@@ -89,29 +90,29 @@
             <input id="autoNight" type="checkbox" checked>
             Reglages auto nuit
           </label>
-          <label>
+          <label data-timelapse-control>
             Methode ciel
             <select id="stackMode">
               <option value="max">Etoiles intenses</option>
               <option value="average">Moyenne douce</option>
             </select>
           </label>
-          <label>
+          <label data-timelapse-control>
             Derive X par image
             <input id="driftX" type="range" min="-12" max="12" value="0" step="0.5">
             <output id="driftXValue">0 px</output>
           </label>
-          <label>
+          <label data-timelapse-control>
             Derive Y par image
             <input id="driftY" type="range" min="-12" max="12" value="0" step="0.5">
             <output id="driftYValue">0 px</output>
           </label>
-          <label>
+          <label data-timelapse-control>
             Limite premier plan
             <input id="horizon" type="range" min="35" max="90" value="68">
             <output id="horizonValue">68%</output>
           </label>
-          <label class="check">
+          <label class="check" data-timelapse-control>
             <input id="foregroundOnce" type="checkbox" checked>
             Utiliser une seule fois le premier plan de la premiere photo
           </label>

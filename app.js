@@ -39,6 +39,8 @@ const els = {
   outputHeight: document.querySelector("#outputHeight"),
   projection: document.querySelector("#projection"),
   nightSessionType: document.querySelector("#nightSessionType"),
+  nightModeHint: document.querySelector("#nightModeHint"),
+  timelapseControls: document.querySelectorAll("[data-timelapse-control]"),
   nightPreset: document.querySelector("#nightPreset"),
   stackMode: document.querySelector("#stackMode"),
   autoNight: document.querySelector("#autoNight"),
@@ -347,6 +349,9 @@ function refreshOutputs() {
 
 function setMode(mode) {
   state.mode = mode;
+  if (mode === "night") {
+    els.nightSessionType.value = "panorama";
+  }
   els.dayMode.classList.toggle("active", mode === "day");
   els.nightMode.classList.toggle("active", mode === "night");
   els.stormMode.classList.toggle("active", mode === "storm");
@@ -360,12 +365,22 @@ function setMode(mode) {
   }[mode];
   state.rendered = false;
   clearCanvas();
+  syncNightSessionUi();
   const messages = {
     day: "Mode jour: assemble une rangee panoramique.",
     night: "Mode nuit: empile le ciel et garde un seul premier plan.",
     storm: "Mode orage: garde le decor fixe et additionne les eclairs visibles de la session."
   };
   updateStatus(messages[mode]);
+}
+
+function syncNightSessionUi() {
+  const isTimelapse = els.nightSessionType.value === "timelapse";
+  els.timelapseControls.forEach((control) => control.classList.toggle("hidden", !isTimelapse));
+  els.renderBtn.textContent = state.mode === "night" && isTimelapse ? "Empiler" : "Assembler";
+  els.nightModeHint.textContent = isTimelapse
+    ? "Time-lapse meme cadrage: utilise ce mode seulement si toutes les photos sont prises sans bouger le trepied ni changer le cadrage."
+    : "Panorama horizontal: utilise ce mode pour assembler plusieurs cadrages de ciel, montagne ou Voie lactee.";
 }
 
 function resizeCanvas(width, height) {
@@ -1021,6 +1036,7 @@ els.downloadBtn.addEventListener("click", downloadPng);
 els.dayMode.addEventListener("click", () => setMode("day"));
 els.nightMode.addEventListener("click", () => setMode("night"));
 els.stormMode.addEventListener("click", () => setMode("storm"));
+els.nightSessionType.addEventListener("change", syncNightSessionUi);
 els.checkUpdateBtn.addEventListener("click", checkForUpdate);
 els.runUpdateBtn.addEventListener("click", runUpdate);
 els.nightPreset.addEventListener("change", () => applyPreset(els.nightPreset.value));
@@ -1046,3 +1062,4 @@ bindOutput(els.driftY, " px");
 
 clearCanvas();
 initEngines();
+syncNightSessionUi();

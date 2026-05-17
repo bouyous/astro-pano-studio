@@ -233,9 +233,15 @@ select {
 }
 
 .engine p,
-.update-box p {
+.update-box p,
+.mode-hint {
   color: var(--muted);
   font-size: 13px;
+}
+
+.mode-hint {
+  margin-top: -4px;
+  line-height: 1.35;
 }
 
 .badge {
