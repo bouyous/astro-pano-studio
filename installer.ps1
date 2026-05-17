@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
 
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
-$launcher = Join-Path $project "Astro Pano Studio.cmd"
+$exeLauncher = Join-Path $project "AstroPanoStudio.exe"
+$cmdLauncher = Join-Path $project "Astro Pano Studio.cmd"
+$launcher = if (Test-Path $exeLauncher) { $exeLauncher } else { $cmdLauncher }
 $desktop = [Environment]::GetFolderPath("Desktop")
 $startMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "Astro Pano Studio"
 $shortcutTargets = @(

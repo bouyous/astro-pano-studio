@@ -30,6 +30,10 @@ Depuis le dossier du logiciel:
 
 Le script cree un raccourci sur le bureau et dans le menu Demarrer. Le raccourci lance `Astro Pano Studio.cmd`, qui demarre le serveur local.
 
+## Version .exe
+
+La release GitHub contient `AstroPanoStudio.exe`. Lance l'executable: il demarre le serveur local et ouvre le navigateur automatiquement. Si l'exe est place dans le dossier complet du depot, le controle de mise a jour GitHub peut aussi fonctionner.
+
 ## Mise a jour
 
 Depuis l'interface, utilise `Verifier` puis `Mettre a jour`.
