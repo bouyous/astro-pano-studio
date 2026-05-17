@@ -38,6 +38,7 @@ const els = {
   exposure: document.querySelector("#exposure"),
   outputHeight: document.querySelector("#outputHeight"),
   projection: document.querySelector("#projection"),
+  nightSessionType: document.querySelector("#nightSessionType"),
   nightPreset: document.querySelector("#nightPreset"),
   stackMode: document.querySelector("#stackMode"),
   autoNight: document.querySelector("#autoNight"),
@@ -482,23 +483,41 @@ function renderDay() {
     return;
   }
 
+  const result = renderPanorama(images, {
+    height: Number(els.outputHeight.value),
+    overlap: Number(els.overlap.value) / 100,
+    exposure: Number(els.exposure.value),
+    projection: els.projection.value,
+    autoNight: false,
+    bloom: Number(els.bloom.value),
+    vignette: Number(els.vignetteFix.value)
+  });
+
+  state.rendered = true;
+  els.downloadBtn.disabled = false;
+  els.emptyState.classList.add("hidden");
+  updateStatus(`Panorama ${els.projection.value} cree avec ${images.length} image(s) via ${result.engine}.${explainUnreadableFiles()}`);
+}
+
+function renderPanorama(images, options) {
   const targetHeight = Number(els.outputHeight.value);
+  const height = options.height || targetHeight;
   const scaled = images.map((image) => {
-    const scale = targetHeight / image.naturalHeight;
+    const scale = height / image.naturalHeight;
     return {
       image,
       width: image.naturalWidth * scale,
-      height: targetHeight
+      height
     };
   });
-  const overlap = Number(els.overlap.value) / 100;
+  const overlap = options.overlap;
   const totalWidth = scaled.reduce((sum, item, index) => {
     const step = index === 0 ? item.width : item.width * (1 - overlap);
     return sum + step;
   }, 0);
 
-  const exposure = Number(els.exposure.value);
-  resizeCanvas(totalWidth, targetHeight);
+  const exposure = options.exposure;
+  resizeCanvas(totalWidth, height);
   ctx.clearRect(0, 0, els.preview.width, els.preview.height);
 
   let engine = "CPU Canvas";
@@ -518,21 +537,40 @@ function renderDay() {
     drawDayCpu(scaled, overlap, exposure);
   }
 
-  applyProjection(els.projection.value);
-  applyVignetteToCanvas(Number(els.vignetteFix.value));
-  applyBloom(Number(els.bloom.value));
-  state.rendered = true;
-  els.downloadBtn.disabled = false;
-  els.emptyState.classList.add("hidden");
-  updateStatus(`Panorama ${els.projection.value} cree avec ${images.length} image(s) via ${engine}.${explainUnreadableFiles()}`);
+  applyProjection(options.projection);
+  applyVignetteToCanvas(options.vignette);
+  if (options.autoNight) applyAutoNight();
+  applyBloom(options.bloom);
+  return { engine };
 }
 
 function drawDayCpu(scaled, overlap, exposure) {
   ctx.fillStyle = "#050607";
   ctx.fillRect(0, 0, els.preview.width, els.preview.height);
   let x = 0;
-  scaled.forEach((item) => {
-    drawWithExposure(item.image, x, 0, item.width, item.height, exposure);
+  scaled.forEach((item, index) => {
+    if (index === 0 || overlap <= 0) {
+      drawWithExposure(item.image, x, 0, item.width, item.height, exposure);
+      x += item.width * (1 - overlap);
+      return;
+    }
+
+    const blendWidth = Math.max(1, item.width * overlap);
+    const layer = document.createElement("canvas");
+    layer.width = Math.ceil(item.width);
+    layer.height = Math.ceil(item.height);
+    const layerCtx = layer.getContext("2d");
+    layerCtx.filter = `brightness(${exposure}%)`;
+    layerCtx.drawImage(item.image, 0, 0, item.width, item.height);
+    layerCtx.globalCompositeOperation = "destination-in";
+    const fade = layerCtx.createLinearGradient(0, 0, blendWidth, 0);
+    fade.addColorStop(0, "rgba(255,255,255,0)");
+    fade.addColorStop(1, "rgba(255,255,255,1)");
+    layerCtx.fillStyle = fade;
+    layerCtx.fillRect(0, 0, blendWidth, item.height);
+    layerCtx.fillStyle = "#fff";
+    layerCtx.fillRect(blendWidth, 0, item.width - blendWidth, item.height);
+    ctx.drawImage(layer, x, 0);
     x += item.width * (1 - overlap);
   });
 }
@@ -552,6 +590,23 @@ function renderNight() {
   const images = readableFiles().map((item) => item.image);
   if (!images.length) {
     updateStatus("Aucune image lisible pour l'empilement. Les RAW/TIFF doivent etre developpes/exportes avant import.");
+    return;
+  }
+
+  if (els.nightSessionType.value === "panorama") {
+    const result = renderPanorama(images, {
+      height: Number(els.outputHeight.value),
+      overlap: Number(els.overlap.value) / 100,
+      exposure: Number(els.exposure.value),
+      projection: els.projection.value,
+      autoNight: els.autoNight.checked,
+      bloom: Number(els.bloom.value),
+      vignette: Number(els.vignetteFix.value)
+    });
+    state.rendered = true;
+    els.downloadBtn.disabled = false;
+    els.emptyState.classList.add("hidden");
+    updateStatus(`Panorama nuit cree avec ${images.length} image(s) via ${result.engine}. Pour empiler des etoiles, choisis "Time-lapse meme cadrage".${explainUnreadableFiles()}`);
     return;
   }
 
