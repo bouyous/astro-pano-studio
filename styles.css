@@ -146,6 +146,7 @@ h1 {
 }
 
 .segmented {
+  grid-template-columns: repeat(3, 1fr);
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -224,7 +225,8 @@ select {
   gap: 8px;
 }
 
-.engine p {
+.engine p,
+.update-box p {
   color: var(--muted);
   font-size: 13px;
 }

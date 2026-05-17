@@ -20,6 +20,26 @@ Si `node` est refuse par Windows dans cette session, lance plutot:
 .\lancer.ps1
 ```
 
+## Installation Windows
+
+Depuis le dossier du logiciel:
+
+```powershell
+.\installer.ps1
+```
+
+Le script cree un raccourci sur le bureau et dans le menu Demarrer. Le raccourci lance `Astro Pano Studio.cmd`, qui demarre le serveur local.
+
+## Mise a jour
+
+Depuis l'interface, utilise `Verifier` puis `Mettre a jour`.
+
+Ou depuis PowerShell:
+
+```powershell
+.\update.ps1
+```
+
 ## Utilisation
 
 1. Importe les photos.

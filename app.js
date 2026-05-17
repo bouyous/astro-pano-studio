@@ -19,12 +19,17 @@ const els = {
   loadedCount: document.querySelector("#loadedCount"),
   renderBtn: document.querySelector("#renderBtn"),
   downloadBtn: document.querySelector("#downloadBtn"),
+  checkUpdateBtn: document.querySelector("#checkUpdateBtn"),
+  runUpdateBtn: document.querySelector("#runUpdateBtn"),
+  updateStatus: document.querySelector("#updateStatus"),
   clearBtn: document.querySelector("#clearBtn"),
   sortBtn: document.querySelector("#sortBtn"),
   dayMode: document.querySelector("#dayMode"),
   nightMode: document.querySelector("#nightMode"),
+  stormMode: document.querySelector("#stormMode"),
   dayControls: document.querySelector("#dayControls"),
   nightControls: document.querySelector("#nightControls"),
+  stormControls: document.querySelector("#stormControls"),
   workspaceTitle: document.querySelector("#workspaceTitle"),
   overlap: document.querySelector("#overlap"),
   exposure: document.querySelector("#exposure"),
@@ -39,6 +44,10 @@ const els = {
   foregroundOnce: document.querySelector("#foregroundOnce"),
   foregroundStyle: document.querySelector("#foregroundStyle"),
   foregroundLight: document.querySelector("#foregroundLight"),
+  lightningThreshold: document.querySelector("#lightningThreshold"),
+  lightningIntensity: document.querySelector("#lightningIntensity"),
+  cloudProtection: document.querySelector("#cloudProtection"),
+  stormBaseDarken: document.querySelector("#stormBaseDarken"),
   vignetteFix: document.querySelector("#vignetteFix"),
   bloom: document.querySelector("#bloom")
 };
@@ -304,6 +313,10 @@ function refreshOutputs() {
   document.querySelector("#vignetteFixValue").textContent = `${els.vignetteFix.value}%`;
   document.querySelector("#bloomValue").textContent = `${els.bloom.value}%`;
   document.querySelector("#foregroundLightValue").textContent = `${els.foregroundLight.value}%`;
+  document.querySelector("#lightningThresholdValue").textContent = `${els.lightningThreshold.value}`;
+  document.querySelector("#lightningIntensityValue").textContent = `${els.lightningIntensity.value}%`;
+  document.querySelector("#cloudProtectionValue").textContent = `${els.cloudProtection.value}%`;
+  document.querySelector("#stormBaseDarkenValue").textContent = `${els.stormBaseDarken.value}%`;
   document.querySelector("#outputHeightValue").textContent = `${els.outputHeight.value} px`;
   document.querySelector("#driftXValue").textContent = `${els.driftX.value} px`;
   document.querySelector("#driftYValue").textContent = `${els.driftY.value} px`;
@@ -313,12 +326,23 @@ function setMode(mode) {
   state.mode = mode;
   els.dayMode.classList.toggle("active", mode === "day");
   els.nightMode.classList.toggle("active", mode === "night");
+  els.stormMode.classList.toggle("active", mode === "storm");
   els.dayControls.classList.toggle("hidden", mode !== "day");
   els.nightControls.classList.toggle("hidden", mode !== "night");
-  els.workspaceTitle.textContent = mode === "day" ? "Panorama jour" : "Ciel etoile avec premier plan unique";
+  els.stormControls.classList.toggle("hidden", mode !== "storm");
+  els.workspaceTitle.textContent = {
+    day: "Panorama jour",
+    night: "Ciel etoile avec premier plan unique",
+    storm: "Orage avec eclairs multiples"
+  }[mode];
   state.rendered = false;
   clearCanvas();
-  updateStatus(mode === "day" ? "Mode jour: assemble une rangee panoramique." : "Mode nuit: empile le ciel et garde un seul premier plan.");
+  const messages = {
+    day: "Mode jour: assemble une rangee panoramique.",
+    night: "Mode nuit: empile le ciel et garde un seul premier plan.",
+    storm: "Mode orage: garde le decor fixe et additionne les eclairs visibles de la session."
+  };
+  updateStatus(messages[mode]);
 }
 
 function resizeCanvas(width, height) {
@@ -520,6 +544,63 @@ function renderNight() {
   stackOnMainThread(width, height, mode, frames.map((buffer) => new Uint8ClampedArray(buffer)), horizonY, images);
 }
 
+function renderStorm() {
+  const images = readableFiles().map((item) => item.image);
+  if (images.length < 2) {
+    updateStatus("Mode orage: importe au moins deux images prises sur trepied.");
+    return;
+  }
+
+  const width = Math.min(2400, images[0].naturalWidth);
+  const scale = width / images[0].naturalWidth;
+  const height = Math.round(images[0].naturalHeight * scale);
+  const threshold = Number(els.lightningThreshold.value);
+  const intensity = Number(els.lightningIntensity.value) / 100;
+  const cloudProtection = Number(els.cloudProtection.value) / 100;
+  const baseDarken = 1 - Number(els.stormBaseDarken.value) / 100;
+
+  resizeCanvas(width, height);
+  const base = imageToCanvasData(images[0], width, height);
+  const out = new Uint8ClampedArray(base.data);
+
+  for (let i = 0; i < out.length; i += 4) {
+    out[i] *= baseDarken;
+    out[i + 1] *= baseDarken;
+    out[i + 2] *= baseDarken;
+  }
+
+  let lightningPixels = 0;
+  for (let frameIndex = 1; frameIndex < images.length; frameIndex += 1) {
+    const frame = imageToCanvasData(images[frameIndex], width, height).data;
+    for (let i = 0; i < out.length; i += 4) {
+      const baseLum = luma(base.data[i], base.data[i + 1], base.data[i + 2]);
+      const frameLum = luma(frame[i], frame[i + 1], frame[i + 2]);
+      const delta = frameLum - baseLum;
+      const whiteness = Math.max(frame[i], frame[i + 1], frame[i + 2]) - Math.min(frame[i], frame[i + 1], frame[i + 2]);
+      const cloudReject = cloudProtection * 26;
+
+      if (delta > threshold && whiteness < 92 + cloudReject && frameLum > 80 + threshold * 0.7) {
+        out[i] = Math.max(out[i], Math.min(255, frame[i] * intensity));
+        out[i + 1] = Math.max(out[i + 1], Math.min(255, frame[i + 1] * intensity));
+        out[i + 2] = Math.max(out[i + 2], Math.min(255, frame[i + 2] * intensity));
+        lightningPixels += 1;
+      }
+    }
+  }
+
+  ctx.putImageData(new ImageData(out, width, height), 0, 0);
+  applyVignetteToCanvas(Number(els.vignetteFix.value));
+  applyBloom(Math.max(Number(els.bloom.value), 10));
+  state.rendered = true;
+  els.downloadBtn.disabled = false;
+  els.emptyState.classList.add("hidden");
+  updateStatus(`Photo d'orage creee avec ${images.length} images, ${Math.round(lightningPixels / 1000)}k pixels d'eclairs fusionnes.`);
+}
+
+function luma(r, g, b) {
+  return r * 0.2126 + g * 0.7152 + b * 0.0722;
+}
+
 function renderNightWithWorkers(width, height, mode, frames, horizonY, frameCount, foreground, vignetteFix) {
   const workerTotal = Math.min(state.workerCount, height);
   const chunkHeight = Math.ceil(height / workerTotal);
@@ -693,16 +774,57 @@ function downloadPng() {
   if (!state.rendered) return;
   const link = document.createElement("a");
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  link.download = state.mode === "day" ? `panorama-jour-${stamp}.png` : `astro-pano-${stamp}.png`;
+  const prefix = {
+    day: "panorama-jour",
+    night: "astro-pano",
+    storm: "orage-eclairs"
+  }[state.mode];
+  link.download = `${prefix}-${stamp}.png`;
   link.href = els.preview.toDataURL("image/png");
   link.click();
 }
 
+function renderCurrentMode() {
+  if (state.mode === "day") renderDay();
+  if (state.mode === "night") renderNight();
+  if (state.mode === "storm") renderStorm();
+}
+
+async function checkForUpdate() {
+  els.checkUpdateBtn.disabled = true;
+  els.updateStatus.textContent = "Verification GitHub...";
+  try {
+    const response = await fetch("/api/update/check");
+    const data = await response.json();
+    els.runUpdateBtn.disabled = !data.ok || !data.updateAvailable;
+    els.updateStatus.textContent = data.message || "Verification terminee.";
+  } catch (error) {
+    els.updateStatus.textContent = "Verification impossible. Lance le logiciel via le serveur local.";
+  } finally {
+    els.checkUpdateBtn.disabled = false;
+  }
+}
+
+async function runUpdate() {
+  els.runUpdateBtn.disabled = true;
+  els.updateStatus.textContent = "Mise a jour en cours...";
+  try {
+    const response = await fetch("/api/update/run", { method: "POST" });
+    const data = await response.json();
+    els.updateStatus.textContent = data.message || "Mise a jour terminee.";
+  } catch (error) {
+    els.updateStatus.textContent = "Mise a jour impossible depuis l'interface.";
+  }
+}
+
 els.fileInput.addEventListener("change", (event) => addFiles(event.target.files));
-els.renderBtn.addEventListener("click", () => state.mode === "day" ? renderDay() : renderNight());
+els.renderBtn.addEventListener("click", renderCurrentMode);
 els.downloadBtn.addEventListener("click", downloadPng);
 els.dayMode.addEventListener("click", () => setMode("day"));
 els.nightMode.addEventListener("click", () => setMode("night"));
+els.stormMode.addEventListener("click", () => setMode("storm"));
+els.checkUpdateBtn.addEventListener("click", checkForUpdate);
+els.runUpdateBtn.addEventListener("click", runUpdate);
 els.nightPreset.addEventListener("change", () => applyPreset(els.nightPreset.value));
 els.sortBtn.addEventListener("click", () => {
   state.files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -718,7 +840,8 @@ els.clearBtn.addEventListener("click", () => {
   updateStatus();
 });
 
-for (const range of [els.overlap, els.exposure, els.horizon, els.vignetteFix, els.bloom, els.foregroundLight]) bindOutput(range, "%");
+for (const range of [els.overlap, els.exposure, els.horizon, els.vignetteFix, els.bloom, els.foregroundLight, els.lightningIntensity, els.cloudProtection, els.stormBaseDarken]) bindOutput(range, "%");
+bindOutput(els.lightningThreshold);
 bindOutput(els.outputHeight, " px");
 bindOutput(els.driftX, " px");
 bindOutput(els.driftY, " px");

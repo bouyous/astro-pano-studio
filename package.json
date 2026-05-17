@@ -4,6 +4,7 @@
   "private": true,
   "description": "Application locale pour assembler des panoramas jour et nuit a partir de photos RAW preparees.",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "update": "git pull --ff-only origin main"
   }
 }

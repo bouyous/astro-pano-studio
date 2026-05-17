@@ -34,6 +34,7 @@
           <div class="segmented" role="tablist" aria-label="Mode de traitement">
             <button id="dayMode" type="button" class="active">Jour</button>
             <button id="nightMode" type="button">Nuit</button>
+            <button id="stormMode" type="button">Orage</button>
           </div>
         </section>
 
@@ -123,6 +124,30 @@
           </label>
         </section>
 
+        <section class="block controls hidden" id="stormControls">
+          <h2>Eclairs multiples</h2>
+          <label>
+            Detection eclairs
+            <input id="lightningThreshold" type="range" min="8" max="120" value="34">
+            <output id="lightningThresholdValue">34</output>
+          </label>
+          <label>
+            Intensite eclairs
+            <input id="lightningIntensity" type="range" min="80" max="220" value="135">
+            <output id="lightningIntensityValue">135%</output>
+          </label>
+          <label>
+            Protection nuages
+            <input id="cloudProtection" type="range" min="0" max="100" value="58">
+            <output id="cloudProtectionValue">58%</output>
+          </label>
+          <label>
+            Assombrir decor
+            <input id="stormBaseDarken" type="range" min="0" max="60" value="12">
+            <output id="stormBaseDarkenValue">12%</output>
+          </label>
+        </section>
+
         <section class="block controls">
           <h2>Optique et rendu</h2>
           <label>
@@ -140,6 +165,15 @@
         <section class="block">
           <button id="renderBtn" type="button" class="primary">Assembler</button>
           <button id="downloadBtn" type="button" disabled>Exporter PNG</button>
+        </section>
+
+        <section class="block update-box">
+          <h2>Mise a jour</h2>
+          <div class="row">
+            <button id="checkUpdateBtn" type="button">Verifier</button>
+            <button id="runUpdateBtn" type="button" disabled>Mettre a jour</button>
+          </div>
+          <p id="updateStatus">Connecte au depot GitHub apres installation.</p>
         </section>
 
         <section class="block engine">
@@ -179,6 +213,10 @@
           <div>
             <h3>Mode nuit</h3>
             <p>Utilise les images du time-lapse pour le ciel, applique une derive manuelle pour suivre les etoiles, puis recolle le premier plan d'une seule image sous la limite choisie.</p>
+          </div>
+          <div>
+            <h3>Mode orage</h3>
+            <p>Pour une sequence sur trepied, garde le decor de la premiere photo et fusionne seulement les zones d'eclairs plus lumineuses des autres photos.</p>
           </div>
         </section>
       </section>
